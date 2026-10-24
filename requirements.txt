@@ -1,0 +1,9 @@
+duckdb==2.0.0
+pandas
+pyarrow
+lightgbm
+holidays
+optuna
+shap
+matplotlib
+pyyaml
