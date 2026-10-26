@@ -10,7 +10,13 @@ Ne yapar:
                       trips = NULL yapilir; 0 degil, cunku "talep yok" degil "saat yok".
        - is_dst_dup : geri alinan saat (Kasim, 01:00). Iki gercek saat tek satira duser,
                       sayi ~2 kat cikar. Satir kalir, bayrakla isaretlenir.
-  5. data/processed/target.parquet yazar ve kontrol raporu basar.
+  5. Modelin kullanacagi duzeltilmis kolonu uretir:
+       - trips       : ham sayi (seffaflik icin; dokunulmaz)
+       - trips_model : feature ve hedef icin kullanilacak kolon
+                       bosluk saati -> NULL, cift saat -> trips / 2, diger saatler -> trips
+     Neden: cift saatteki ~2 kat deger birakilirsa lag_24, lag_168 ve rolling ortalamalar
+     uzerinden sonraki gun ve haftalara yayilir ve o saatlerde tahmini sisirir.
+  6. data/processed/target.parquet yazar ve kontrol raporu basar.
 
 Kullanim (proje kokunde):
     python src\\build_target.py
@@ -60,6 +66,9 @@ def main():
                g.hour,
                CASE WHEN dg.hour IS NOT NULL THEN NULL
                     ELSE coalesce(a.trips, 0) END        AS trips,
+               CASE WHEN dg.hour IS NOT NULL THEN NULL
+                    WHEN dd.hour IS NOT NULL THEN coalesce(a.trips, 0) / 2.0
+                    ELSE coalesce(a.trips, 0) END::DOUBLE AS trips_model,
                (dg.hour IS NOT NULL)                       AS is_dst_gap,
                (dd.hour IS NOT NULL)                       AS is_dst_dup
         FROM grid g
@@ -95,10 +104,12 @@ def main():
             row = con.execute(f"""
                 SELECT sum(trips) FILTER (WHERE hour = TIMESTAMP '{h}' - INTERVAL 1 HOUR),
                        sum(trips) FILTER (WHERE hour = TIMESTAMP '{h}'),
-                       sum(trips) FILTER (WHERE hour = TIMESTAMP '{h}' + INTERVAL 1 HOUR)
-                FROM agg
+                       sum(trips) FILTER (WHERE hour = TIMESTAMP '{h}' + INTERVAL 1 HOUR),
+                       sum(trips_model) FILTER (WHERE hour = TIMESTAMP '{h}')
+                FROM target
             """).fetchall()[0]
-            print(f"  {label:15s} {h}   once={row[0]}  o saat={row[1]}  sonra={row[2]}")
+            print(f"  {label:15s} {h}   once={row[0]}  o saat={row[1]}  sonra={row[2]}  "
+                  f"-> trips_model={row[3]}")
 
     print("\nEn dusuk hacimli 10 zone (EDA'da tutulacak mi karar verilecek):")
     print(con.execute("""
